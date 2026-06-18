@@ -55,8 +55,11 @@ export async function novadaProxyMap(
     html = fetchResultStr;
   }
 
-  // Extract all <a href> links
-  const hrefRe = /<a[^>]+href=["']([^"'#?][^"']*)["']/gi;
+  // Extract all <a href> links.
+  // INC-71: allow pagination links (?page=N, /page/N) — previously the [^"'#?] exclusion
+  // dropped all query-string-only hrefs, making paginated sites invisible to the map tool.
+  // We still skip bare fragments (#anchor) and javascript: hrefs.
+  const hrefRe = /<a[^>]+href=["']([^"'#][^"']*)["']/gi;
   const seen = new Set<string>();
   const internalUrls: string[] = [];
   const externalUrls: string[] = [];
@@ -65,6 +68,8 @@ export async function novadaProxyMap(
   while ((match = hrefRe.exec(html)) !== null) {
     const raw = match[1]?.trim();
     if (!raw) continue;
+    // Skip javascript: and mailto: pseudo-schemes
+    if (/^(?:javascript|mailto|tel|data):/i.test(raw)) continue;
 
     let resolved: string;
     try {

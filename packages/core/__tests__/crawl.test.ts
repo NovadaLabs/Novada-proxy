@@ -1133,3 +1133,69 @@ describe("novadaProxyCrawl", () => {
     expect(urls).not.toContain("https://example.com/about");
   });
 });
+
+// ─── INC-69: Double render call deduplication ─────────────────────────────────
+
+describe("INC-69: render call dedup — single render per page in render mode", () => {
+  beforeEach(() => {
+    novadaProxyFetchSpy.mockReset();
+    novadaProxyRenderSpy.mockReset();
+  });
+
+  it("calls novadaProxyRender exactly once per page even when include_content and markdown format are requested", async () => {
+    const startHtml = `<html><body><h1>Page Title</h1><p>Content</p></body></html>`;
+    novadaProxyRenderSpy.mockResolvedValue(
+      makeRenderResponse("https://example.com", startHtml)
+    );
+
+    await novadaProxyCrawl(
+      {
+        url: "https://example.com",
+        depth: 1,
+        limit: 10,
+        render: "render",
+        include_content: true,
+        output_format: "markdown",
+        browser_ws: "ws://browser:3000",
+      },
+      mockAdapter,
+      mockCreds
+    );
+
+    // With dedup fix: render called exactly once (for HTML), markdown is derived locally
+    expect(novadaProxyRenderSpy).toHaveBeenCalledTimes(1);
+    expect(novadaProxyRenderSpy).toHaveBeenCalledWith(
+      expect.objectContaining({ url: "https://example.com", format: "html" }),
+      "ws://browser:3000"
+    );
+  });
+
+  it("content is still returned (markdown converted from the single HTML render)", async () => {
+    const startHtml = `<html><body><h1>Test Heading</h1><p>Body text here</p></body></html>`;
+    novadaProxyRenderSpy.mockResolvedValue(
+      makeRenderResponse("https://example.com", startHtml)
+    );
+
+    const raw = await novadaProxyCrawl(
+      {
+        url: "https://example.com",
+        depth: 1,
+        limit: 10,
+        render: "render",
+        include_content: true,
+        output_format: "markdown",
+        browser_ws: "ws://browser:3000",
+      },
+      mockAdapter,
+      mockCreds
+    );
+
+    const result = JSON.parse(raw);
+    const pages = result.data.pages as Array<{ content?: string }>;
+    expect(pages.length).toBeGreaterThan(0);
+    const page = pages[0];
+    expect(page.content).toBeDefined();
+    // Should contain markdown-converted heading from HTML
+    expect(page.content).toContain("Test Heading");
+  });
+});

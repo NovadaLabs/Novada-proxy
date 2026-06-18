@@ -332,17 +332,26 @@ function extractAllTags(html: string, tag: string): string[] {
 }
 
 function extractAllLinks(html: string, baseUrl?: string): string[] {
+  // INC-71: supports pagination links (?page=N, /page/N) and <a> tags nested inside
+  // <li>, <div>, <span> etc. Nested tags already work via regex; the key fix is resolving
+  // query-string-only hrefs (?page=2) and /page/N paths when baseUrl is provided.
   const re = /<a[^>]+href=["']([^"']+)["']/gi;
+  const seen = new Set<string>(); // O(1) dedup instead of O(n) array includes
   const results: string[] = [];
   let m: RegExpExecArray | null;
   while ((m = re.exec(html)) !== null) {
     const href = m[1];
     if (!href) continue;
+    // Skip bare fragments and javascript: URIs
+    if (href.startsWith("#") || href.startsWith("javascript:") || href.startsWith("mailto:")) continue;
     let resolved = href;
     if (!href.startsWith("http") && baseUrl) {
+      // Handles: relative paths (/about), query-string pagination (?page=2),
+      // /page/N pagination, and ../sibling traversals
       try { resolved = new URL(href, baseUrl).toString(); } catch { continue; }
     }
-    if (resolved.startsWith("http") && !results.includes(resolved)) {
+    if (resolved.startsWith("http") && !seen.has(resolved)) {
+      seen.add(resolved);
       results.push(resolved);
     }
   }

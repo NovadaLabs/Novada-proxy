@@ -347,6 +347,81 @@ describe("extractField", () => {
   });
 });
 
+// ─── INC-71: pagination + nested-tag link support ────────────────────────────
+
+describe("INC-71: extractField links — pagination and nested-tag support", () => {
+  it("extracts ?page=N pagination links when baseUrl is provided", () => {
+    const html = `
+      <a href="?page=2">Next page</a>
+      <a href="?page=3">Page 3</a>
+      <a href="https://example.com/article">Article</a>
+    `;
+    const links = extractField(html, "links", "https://example.com/blog") as string[];
+    // ?page=2 resolves against baseUrl → https://example.com/blog?page=2
+    expect(links).toContain("https://example.com/blog?page=2");
+    expect(links).toContain("https://example.com/blog?page=3");
+    expect(links).toContain("https://example.com/article");
+  });
+
+  it("extracts /page/N pagination links", () => {
+    const html = `
+      <a href="/page/2">Next</a>
+      <a href="/page/10">Last</a>
+    `;
+    const links = extractField(html, "links", "https://example.com") as string[];
+    expect(links).toContain("https://example.com/page/2");
+    expect(links).toContain("https://example.com/page/10");
+  });
+
+  it("extracts links from <a> tags nested inside <li> elements", () => {
+    const html = `
+      <ul>
+        <li><a href="https://example.com/item1">Item 1</a></li>
+        <li><a href="https://example.com/item2">Item 2</a></li>
+      </ul>
+    `;
+    const links = extractField(html, "links") as string[];
+    expect(links).toContain("https://example.com/item1");
+    expect(links).toContain("https://example.com/item2");
+  });
+
+  it("extracts links from <a> tags nested inside <div> elements with attributes", () => {
+    const html = `
+      <div class="nav-container" data-id="main">
+        <div class="inner">
+          <a href="https://example.com/about">About</a>
+        </div>
+        <span class="item"><a href="https://example.com/contact">Contact</a></span>
+      </div>
+    `;
+    const links = extractField(html, "links") as string[];
+    expect(links).toContain("https://example.com/about");
+    expect(links).toContain("https://example.com/contact");
+  });
+
+  it("skips javascript: and mailto: hrefs", () => {
+    const html = `
+      <a href="javascript:void(0)">JS</a>
+      <a href="mailto:test@example.com">Mail</a>
+      <a href="https://example.com/valid">Valid</a>
+    `;
+    const links = extractField(html, "links", "https://example.com") as string[];
+    expect(links).toContain("https://example.com/valid");
+    expect(links).not.toContain("javascript:void(0)");
+    expect(links).not.toContain("mailto:test@example.com");
+  });
+
+  it("deduplicates pagination links", () => {
+    const html = `
+      <a href="?page=2">Next</a>
+      <a href="?page=2">Next (duplicate)</a>
+    `;
+    const links = extractField(html, "links", "https://example.com/blog") as string[];
+    const page2Links = links.filter(l => l.includes("page=2"));
+    expect(page2Links).toHaveLength(1);
+  });
+});
+
 // ─── validateExtractParams — schema validation ───────────────────────────────
 
 describe("validateExtractParams — schema validation", () => {

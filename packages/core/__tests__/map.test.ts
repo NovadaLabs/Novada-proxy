@@ -355,3 +355,109 @@ describe("novadaProxyMap", () => {
     expect(result.meta.country).toBeUndefined();
   });
 });
+
+// ─── INC-71: map.ts pagination + nested-tag link support ─────────────────────
+
+describe("INC-71: novadaProxyMap — pagination and nested-tag link support", () => {
+  beforeEach(() => {
+    novadaProxyFetchSpy.mockReset();
+  });
+
+  it("extracts ?page=N pagination links", async () => {
+    const html = `<html><body>
+      <a href="?page=2">Next page</a>
+      <a href="?page=3">Page 3</a>
+      <a href="/article">Article</a>
+    </body></html>`;
+
+    novadaProxyFetchSpy.mockResolvedValueOnce(
+      makeFetchResponse("https://example.com/blog", html)
+    );
+
+    const raw = await novadaProxyMap(
+      { url: "https://example.com/blog" },
+      mockAdapter,
+      mockCreds
+    );
+    const result = JSON.parse(raw) as ProxySuccessResponse;
+
+    const urls = result.data.internal_urls as string[];
+    // Pagination hrefs should now be included
+    expect(urls.some(u => u.includes("page=2"))).toBe(true);
+    expect(urls.some(u => u.includes("page=3"))).toBe(true);
+    expect(urls).toContain("https://example.com/article");
+  });
+
+  it("extracts /page/N path-based pagination links", async () => {
+    const html = `<html><body>
+      <a href="/page/2">Next</a>
+      <a href="/page/5">Last</a>
+    </body></html>`;
+
+    novadaProxyFetchSpy.mockResolvedValueOnce(
+      makeFetchResponse("https://example.com", html)
+    );
+
+    const raw = await novadaProxyMap(
+      { url: "https://example.com" },
+      mockAdapter,
+      mockCreds
+    );
+    const result = JSON.parse(raw) as ProxySuccessResponse;
+
+    const urls = result.data.internal_urls as string[];
+    expect(urls).toContain("https://example.com/page/2");
+    expect(urls).toContain("https://example.com/page/5");
+  });
+
+  it("extracts links nested inside <li>, <div>, and <span> tags", async () => {
+    const html = `<html><body>
+      <ul>
+        <li><a href="/item1">Item 1</a></li>
+        <li class="nav-item"><a href="/item2">Item 2</a></li>
+      </ul>
+      <div class="content-block" data-id="main">
+        <span><a href="/deep-link">Deep</a></span>
+      </div>
+    </body></html>`;
+
+    novadaProxyFetchSpy.mockResolvedValueOnce(
+      makeFetchResponse("https://example.com", html)
+    );
+
+    const raw = await novadaProxyMap(
+      { url: "https://example.com" },
+      mockAdapter,
+      mockCreds
+    );
+    const result = JSON.parse(raw) as ProxySuccessResponse;
+
+    const urls = result.data.internal_urls as string[];
+    expect(urls).toContain("https://example.com/item1");
+    expect(urls).toContain("https://example.com/item2");
+    expect(urls).toContain("https://example.com/deep-link");
+  });
+
+  it("skips javascript: hrefs", async () => {
+    const html = `<html><body>
+      <a href="javascript:void(0)">JS click</a>
+      <a href="/valid-page">Valid</a>
+    </body></html>`;
+
+    novadaProxyFetchSpy.mockResolvedValueOnce(
+      makeFetchResponse("https://example.com", html)
+    );
+
+    const raw = await novadaProxyMap(
+      { url: "https://example.com" },
+      mockAdapter,
+      mockCreds
+    );
+    const result = JSON.parse(raw) as ProxySuccessResponse;
+
+    const urls = result.data.internal_urls as string[];
+    expect(urls).toContain("https://example.com/valid-page");
+    // javascript: resolved against origin would produce an odd URL — ensure it's excluded
+    expect(urls.some(u => u.includes("javascript"))).toBe(false);
+  });
+});

@@ -279,3 +279,72 @@ describe("contentDensity", () => {
     expect(contentDensity(500, 0)).toBe(1);
   });
 });
+
+// ─── INC-70: O(n²) → O(n log n) noise filter correctness ─────────────────────
+
+describe("INC-70: stripNoiseElements O(n log n) — correctness with many noise elements", () => {
+  it("removes multiple noise divs in a single pass without leaving residual fragments", () => {
+    // Build a document with N noise divs followed by real content
+    const noiseDivs = Array.from({ length: 20 }, (_, i) =>
+      `<div class="cookie-banner">Cookie notice ${i}</div>`
+    ).join("\n");
+    const html = `${noiseDivs}\n<p>Article body</p>`;
+    const result = stripNoiseElements(html);
+
+    expect(result).toContain("Article body");
+    expect(result).not.toContain("Cookie notice");
+    // No partial noise div tags left behind
+    expect(result).not.toMatch(/cookie-banner/i);
+  });
+
+  it("removes noise elements interleaved with content elements", () => {
+    const html = `
+      <div class="advertisement">Ad 1</div>
+      <p>Real paragraph 1</p>
+      <div class="sidebar">Sidebar content</div>
+      <p>Real paragraph 2</p>
+      <div class="modal">Modal popup</div>
+      <p>Real paragraph 3</p>
+    `;
+    const result = stripNoiseElements(html);
+
+    expect(result).toContain("Real paragraph 1");
+    expect(result).toContain("Real paragraph 2");
+    expect(result).toContain("Real paragraph 3");
+    expect(result).not.toContain("Ad 1");
+    expect(result).not.toContain("Sidebar content");
+    expect(result).not.toContain("Modal popup");
+  });
+
+  it("handles n=50 noise elements without exponential slowdown", () => {
+    // Performance guard: 50 noise divs should complete well under 1 second
+    const noiseDivs = Array.from({ length: 50 }, (_, i) =>
+      `<div class="nav-bar">Nav item ${i}</div>`
+    ).join("");
+    const html = `${noiseDivs}<article><p>Main content</p></article>`;
+
+    const start = Date.now();
+    const result = stripNoiseElements(html);
+    const elapsed = Date.now() - start;
+
+    expect(result).toContain("Main content");
+    expect(result).not.toContain("Nav item");
+    // Should complete in <500ms even on slow CI (O(n log n) vs O(n²))
+    expect(elapsed).toBeLessThan(500);
+  });
+
+  it("correctly removes nested noise elements at any depth", () => {
+    const html = `
+      <div class="cookie-consent">
+        <div>Inner div 1<div>Deepest</div></div>
+        <p>Inner paragraph</p>
+      </div>
+      <p>Preserved content</p>
+    `;
+    const result = stripNoiseElements(html);
+    expect(result).toContain("Preserved content");
+    expect(result).not.toContain("Inner div");
+    expect(result).not.toContain("Deepest");
+    expect(result).not.toContain("Inner paragraph");
+  });
+});
