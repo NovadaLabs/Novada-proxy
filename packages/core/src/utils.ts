@@ -39,29 +39,29 @@ export function stripNoiseElements(html: string): string {
   result = result.replace(/<aside[\s>][\s\S]*?<\/aside>/gi, "");
   result = result.replace(/<form[\s>][\s\S]*?<\/form>/gi, "");
 
-  // 2. Strip elements with noise class/id patterns
-  //    Match opening tags with class="..." or id="..." containing noise keywords,
-  //    then remove through the matching closing tag.
-  //    We handle <div>, <section>, <span>, <ul>, <ol> with noise attributes.
+  // 2. Strip elements with noise class/id patterns.
+  //    O(n log n): collect all removal ranges in one pass per tag, sort and merge,
+  //    then perform a single string reconstruction — avoids the O(n²) splice-and-rescan
+  //    pattern of the previous per-match mutation loop (INC-70).
   const noiseTagNames = ["div", "section", "span", "ul", "ol", "p"];
   for (const tag of noiseTagNames) {
-    // Match opening tag with class or id containing noise pattern
     const openTagRe = new RegExp(
       `<${tag}\\s[^>]*(?:class|id)\\s*=\\s*["'][^"']*${NOISE_ATTR_PATTERN.source}[^"']*["'][^>]*>`,
       "gi"
     );
-    // For each match, find the corresponding closing tag and remove everything
+    const openRe = new RegExp(`<${tag}[\\s>]`, "gi");
+    const closeRe = new RegExp(`</${tag}>`, "gi");
+    const closeTag = `</${tag}>`;
+
+    // Collect all [start, end) ranges to remove (non-overlapping, in document order)
+    const ranges: Array<[number, number]> = [];
     let match: RegExpExecArray | null;
     while ((match = openTagRe.exec(result)) !== null) {
       const startIdx = match.index;
-      // Simple depth-based closing tag finder
-      const closeTag = `</${tag}>`;
       let depth = 1;
       let searchPos = startIdx + match[0].length;
-      const openRe = new RegExp(`<${tag}[\\s>]`, "gi");
-      const closeRe = new RegExp(`</${tag}>`, "gi");
-
       let endIdx = -1;
+
       while (depth > 0 && searchPos < result.length) {
         openRe.lastIndex = searchPos;
         closeRe.lastIndex = searchPos;
@@ -83,10 +83,31 @@ export function stripNoiseElements(html: string): string {
       }
 
       if (endIdx !== -1) {
-        result = result.slice(0, startIdx) + result.slice(endIdx);
-        openTagRe.lastIndex = startIdx; // re-scan from same position
+        ranges.push([startIdx, endIdx]);
+        // Advance past this match so we don't re-enter its interior
+        openTagRe.lastIndex = endIdx;
       }
     }
+
+    if (ranges.length === 0) continue;
+
+    // Sort by start position (they should already be ordered, but sort ensures correctness)
+    ranges.sort((a, b) => a[0] - b[0]);
+
+    // Merge overlapping/adjacent ranges and build result in one pass
+    const parts: string[] = [];
+    let cursor = 0;
+    for (const [start, end] of ranges) {
+      if (start > cursor) {
+        parts.push(result.slice(cursor, start));
+      }
+      // Skip the removed range; handle overlap
+      if (end > cursor) cursor = end;
+    }
+    if (cursor < result.length) {
+      parts.push(result.slice(cursor));
+    }
+    result = parts.join("");
   }
 
   // 3. Strip hidden elements
