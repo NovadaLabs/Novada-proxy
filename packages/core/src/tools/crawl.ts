@@ -51,15 +51,20 @@ function extractInternalLinks(
   includePatterns?: RegExp[],
   excludePatterns?: RegExp[]
 ): { allLinks: string[]; newLinks: string[] } {
-  const hrefRe = /<a[^>]+href=["']([^"'#?][^"']*)["']/gi;
+  // INC-71: allow ?page=N pagination hrefs — removed the [^"'#?] exclusion that dropped
+  // query-string-only hrefs. Fragments (#) and javascript: are handled below.
+  const hrefRe = /<a[^>]+href=["']([^"'#][^"']*)["']/gi;
   const allLinks: string[] = [];
   const newLinks: string[] = [];
   const pageDedup = new Set<string>(); // dedup within this page
+  const newLinksSet = new Set<string>(); // O(1) dedup for new links
 
   let match: RegExpExecArray | null;
   while ((match = hrefRe.exec(html)) !== null) {
     const raw = match[1]?.trim();
     if (!raw) continue;
+    // Skip javascript: and mailto: pseudo-schemes (INC-71)
+    if (/^(?:javascript|mailto|tel|data):/i.test(raw)) continue;
 
     let resolved: string;
     try {
@@ -103,7 +108,8 @@ function extractInternalLinks(
       }
 
       // Count for new_links (not seen globally)
-      if (!seen.has(resolved) && !newLinks.includes(resolved)) {
+      if (!seen.has(resolved) && !newLinksSet.has(resolved)) {
+        newLinksSet.add(resolved);
         newLinks.push(resolved);
       }
     }
@@ -281,7 +287,8 @@ async function fetchPage(
   timeout: number
 ): Promise<{ html: string; userContent?: string; statusCode?: number; cacheHit: boolean }> {
   if (renderMode !== "none" && browserWs) {
-    // Always fetch HTML from the browser for link extraction
+    // Single render call: always fetch HTML for link extraction.
+    // If the user wants markdown, convert locally — avoids a second billed render call (INC-69).
     const htmlResultStr = await novadaProxyRender(
       { url, format: "html", timeout },
       browserWs
@@ -290,15 +297,10 @@ async function fetchPage(
     const rawHtml = (htmlResult.data.content as string) || "";
     const statusCode = htmlResult.data.status_code as number | undefined;
 
-    // If user wants markdown/text, fetch that separately
+    // Convert locally instead of making a second render call
     let userContent: string | undefined;
     if (format !== "raw") {
-      const userResultStr = await novadaProxyRender(
-        { url, format: "markdown", timeout },
-        browserWs
-      );
-      const userResult = JSON.parse(userResultStr) as ProxySuccessResponse;
-      userContent = (userResult.data.content as string) || "";
+      userContent = htmlToMarkdown(rawHtml);
     }
 
     return {
