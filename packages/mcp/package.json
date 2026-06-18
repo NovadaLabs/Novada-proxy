@@ -1,18 +1,24 @@
 {
-  "name": "@novada/proxy-mcp",
-  "version": "0.0.1",
+  "name": "novada-proxy-mcp",
+  "version": "1.8.4",
   "description": "Novada Proxy MCP server — residential proxy tools for AI agents",
   "type": "module",
   "main": "build/index.js",
   "types": "build/index.d.ts",
-  "bin": { "novada-proxy-mcp": "build/index.js" },
-  "files": ["build/**/*.js", "build/**/*.d.ts", "README.md"],
+  "bin": {
+    "novada-proxy-mcp": "build/index.js"
+  },
+  "files": [
+    "build/**/*.js",
+    "build/**/*.d.ts",
+    "README.md"
+  ],
   "scripts": {
     "build": "tsc && node --input-type=commonjs -e \"require('fs').chmodSync('build/index.js', '755')\"",
     "test": "vitest run"
   },
   "dependencies": {
-    "@novada/proxy-core": "*",
+    "novada-proxy-core": "^0.0.1",
     "@modelcontextprotocol/sdk": "^1.26.0"
   },
   "devDependencies": {
@@ -20,6 +26,8 @@
     "typescript": "^5.3.3",
     "vitest": "^4.1.4"
   },
-  "engines": { "node": ">=18.0.0" },
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "license": "MIT"
 }
